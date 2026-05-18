@@ -122,18 +122,28 @@ done
     echo '$USER:x:$USER_ID:$GROUP_ID::$HOME:/usr/bin/bash' >>/etc/passwd
     echo '$GROUP:x:$GROUP_ID:' >>/etc/group
     echo '$USER:*:0:0:99999:7:::' >>/etc/shadow
-    if command -v apt-get >/dev/null 2>&1; then
-      apt-get update
-      apt-get install -y --no-install-recommends sudo
-      rm -rf /var/lib/apt/lists/*
-    elif command -v pacman >/dev/null 2>&1; then
-      pacman-key --init
-      pacman --noconfirm -Syu sudo
-      rm -rf /var/cache/pacman/pkg/*
-      rm -rf /var/lib/pacman/sync/*
+    SUDO_DONE=0
+    if [ -f /etc/pam.d/su ]; then
+      { printf 'auth sufficient pam_permit.so\n'; cat /etc/pam.d/su; } > /tmp/_pam_su \
+        && mv /tmp/_pam_su /etc/pam.d/su \
+        && printf '#!/bin/sh\nexec su root -c "\$*"\n' > /usr/local/bin/sudo \
+        && chmod +x /usr/local/bin/sudo \
+        && SUDO_DONE=1
     fi
-    echo '%$GROUP ALL=(ALL) NOPASSWD:ALL' >/etc/sudoers.d/user
-    chmod 0440 /etc/sudoers.d/user
+    if [ "\$SUDO_DONE" = 0 ]; then
+      if command -v apt-get >/dev/null 2>&1; then
+        apt-get update
+        apt-get install -y --no-install-recommends sudo
+        rm -rf /var/lib/apt/lists/*
+      elif command -v pacman >/dev/null 2>&1; then
+        pacman-key --init
+        pacman --noconfirm -Syu sudo
+        rm -rf /var/cache/pacman/pkg/*
+        rm -rf /var/lib/pacman/sync/*
+      fi
+      echo '%$GROUP ALL=(ALL) NOPASSWD:ALL' >/etc/sudoers.d/user
+      chmod 0440 /etc/sudoers.d/user
+    fi
 EOF
 }
 
