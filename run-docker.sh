@@ -6,7 +6,7 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     -h|--help)
       cat <<EOF
-Usage: $(basename "$0") -i IMAGE [-n NAME] [-o OPTION]... [-- COMMAND [ARGS...]]
+Usage: $(basename "$0") -i IMAGE [-n NAME] [-o OPTION]... [-r] [-- COMMAND [ARGS...]]
 
 Run a command in a Docker container.
 
@@ -14,6 +14,7 @@ Options:
   -i, --image  IMAGE      Docker image to use (required)
   -n, --name   NAME       Container name (default: derived from image and cwd)
   -o, --option OPTION     Extra docker options
+  -r, --restart           Recreate the container
   -h, --help              Show this help message
 
 Arguments:
@@ -24,6 +25,7 @@ EOF
     -i|--image) IMAGE="$2"; shift 2 ;;
     -n|--name) CONTAINER="$2"; shift 2 ;;
     -o|--option) EXTRA_DOCKER_OPTS+=("$2"); shift 2 ;;
+    -r|--restart) RESTART=1; shift ;;
     --) shift; break ;;
     *)
       echo >&2 "ERROR: unknown argument: $1"
@@ -41,6 +43,11 @@ done
 
 [ -z "${CONTAINER+x}" ] && {
     CONTAINER="$(echo "$IMAGE" | tr -c -s '[:alnum:]' '_')$(echo "$PWD" | md5sum | cut -b-7)"
+}
+
+[ -n "${RESTART+x}" ] && [ -n "$(docker ps -a -q -f name="$CONTAINER")" ] && {
+  echo >&2 "INFO: Removing docker container '$CONTAINER'"
+  docker rm -f "$CONTAINER" >/dev/null
 }
 
 [ -z "$(docker ps -a -q -f name="$CONTAINER")" ] && {
