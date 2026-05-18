@@ -6,14 +6,15 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     -h|--help)
       cat <<EOF
-Usage: $(basename "$0") -i IMAGE [-n NAME] [-- COMMAND [ARGS...]]
+Usage: $(basename "$0") -i IMAGE [-n NAME] [-o OPTION]... [-- COMMAND [ARGS...]]
 
 Run a command in a Docker container.
 
 Options:
-  -i, --image IMAGE   Docker image to use (required)
-  -n, --name NAME     Container name (default: derived from image and cwd)
-  -h, --help          Show this help message
+  -i, --image  IMAGE      Docker image to use (required)
+  -n, --name   NAME       Container name (default: derived from image and cwd)
+  -o, --option OPTION     Extra docker options
+  -h, --help              Show this help message
 
 Arguments:
   COMMAND [ARGS...]   Command to run in the container (default: bash)
@@ -22,6 +23,7 @@ EOF
       ;;
     -i|--image) IMAGE="$2"; shift 2 ;;
     -n|--name) CONTAINER="$2"; shift 2 ;;
+    -o|--option) EXTRA_DOCKER_OPTS+=("$2"); shift 2 ;;
     --) shift; break ;;
     *)
       echo >&2 "ERROR: unknown argument: $1"
@@ -74,9 +76,6 @@ done
     MOUNT_HOME_ARGS=(--volume "$DOCKER_HOME:$HOME")
   }
 
-  EXTRA_DOCKER_OPTS_ARGS=()
-  [ -n "${EXTRA_DOCKER_OPTS:-}" ] && IFS=' ' read -r -a EXTRA_DOCKER_OPTS_ARGS <<< "$EXTRA_DOCKER_OPTS"
-
   docker run \
     --detach \
     --interactive \
@@ -91,7 +90,7 @@ done
     "${MOUNT_HOME_ARGS[@]}" \
     --volume "$PWD:$PWD" \
     --name "$CONTAINER" \
-    "${EXTRA_DOCKER_OPTS_ARGS[@]}" \
+    "${EXTRA_DOCKER_OPTS[@]}" \
     "$IMAGE" >/dev/null
 
   cat <<EOF | docker exec -iu0:0 "$CONTAINER" sh -s
