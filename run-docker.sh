@@ -12,7 +12,10 @@ print_error_usage() {
   exit 1
 }
 
-while [ "$#" -gt 0 ]; do
+ARGS=$(getopt -o i:n:o:rh --long image:,name:,option:,restart,help -n "$0" -- "$@") || print_error_usage
+eval set -- "$ARGS"
+
+while true; do
   case "$1" in
     -h|--help)
       print_usage
@@ -37,10 +40,6 @@ EOF
     -o|--option) EXTRA_DOCKER_OPTS+=("$2"); shift 2 ;;
     -r|--restart) RESTART=1; shift ;;
     --) shift; break ;;
-    *)
-      echo >&2 'ERROR: Unknown argument: `'"$1"'`'
-      print_error_usage
-      ;;
   esac
 done
 
