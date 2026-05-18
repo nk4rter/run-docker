@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 set -e
 
@@ -44,21 +44,25 @@ done
 [ -z "$(docker ps -a -q -f name="$CONTAINER")" ] && {
   echo >&2 "INFO: Creating docker container '$CONTAINER'"
 
+  XAUTHORITY_ARGS=()
   [ -n "${XAUTHORITY+x}" ] &&
-    XAUTHORITY_ARG="--env XAUTHORITY --volume $XAUTHORITY:$XAUTHORITY"
+    XAUTHORITY_ARGS=(--env XAUTHORITY --volume "$XAUTHORITY:$XAUTHORITY")
 
   X11_SOCKET="/tmp/.X11-unix"
-  [ -e $X11_SOCKET ] &&
-    X11_SOCKET_ARG="--volume $X11_SOCKET:$X11_SOCKET"
+  X11_SOCKET_ARGS=()
+  [ -e "$X11_SOCKET" ] &&
+    X11_SOCKET_ARGS=(--volume "$X11_SOCKET:$X11_SOCKET")
 
+  XDG_RUNTIME_DIR_ARGS=()
   [ -n "${XDG_RUNTIME_DIR+x}" ] &&
-    XDG_RUNTIME_DIR_ARG="--env XDG_RUNTIME_DIR --volume "$XDG_RUNTIME_DIR:$XDG_RUNTIME_DIR""
+    XDG_RUNTIME_DIR_ARGS=(--env XDG_RUNTIME_DIR --volume "$XDG_RUNTIME_DIR:$XDG_RUNTIME_DIR")
 
   USER_ID=$(id -u)
   GROUP_ID=$(id -g)
   USER=$(id -u -n)
   GROUP=$(id -g -n)
 
+  MOUNT_HOME_ARGS=()
   [ "$PWD" != "$HOME" ] && {
     DOCKER_HOME="$PWD/.docker-home"
     mkdir -p "$DOCKER_HOME"
@@ -67,8 +71,11 @@ done
         mkdir -p "$DOCKER_HOME${PWD#"${HOME}"}"
         ;;
     esac
-    MOUNT_HOME_ARG="--volume "$DOCKER_HOME:$HOME""
+    MOUNT_HOME_ARGS=(--volume "$DOCKER_HOME:$HOME")
   }
+
+  EXTRA_DOCKER_OPTS_ARGS=()
+  [ -n "${EXTRA_DOCKER_OPTS:-}" ] && IFS=' ' read -r -a EXTRA_DOCKER_OPTS_ARGS <<< "$EXTRA_DOCKER_OPTS"
 
   docker run \
     --detach \
@@ -78,13 +85,13 @@ done
     --workdir "$PWD" \
     --env HOME \
     --env USER \
-    $XAUTHORITY_ARG \
-    $X11_SOCKET_ARG \
-    $XDG_RUNTIME_DIR_ARG \
-    $MOUNT_HOME_ARG \
+    "${XAUTHORITY_ARGS[@]}" \
+    "${X11_SOCKET_ARGS[@]}" \
+    "${XDG_RUNTIME_DIR_ARGS[@]}" \
+    "${MOUNT_HOME_ARGS[@]}" \
     --volume "$PWD:$PWD" \
     --name "$CONTAINER" \
-    $EXTRA_DOCKER_OPTS \
+    "${EXTRA_DOCKER_OPTS_ARGS[@]}" \
     "$IMAGE" >/dev/null
 
   cat <<EOF | docker exec -iu0:0 "$CONTAINER" sh -s
@@ -120,12 +127,13 @@ EOF
 
 echo >&2 "INFO: Running in docker container '$CONTAINER'"
 
-[ -t 0 ] && TTY_ARG="--tty"
+TTY_ARGS=()
+[ -t 0 ] && TTY_ARGS=(--tty)
 
 [ "$#" = 0 ] && set -- bash
 
 docker exec \
-  $TTY_ARG \
+  "${TTY_ARGS[@]}" \
   --interactive \
   --env DISPLAY \
   --env TERM \
