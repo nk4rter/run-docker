@@ -2,8 +2,38 @@
 
 set -e
 
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -h|--help)
+      cat <<EOF
+Usage: $(basename "$0") -i IMAGE [-n NAME] [-- COMMAND [ARGS...]]
+
+Run a command in a Docker container.
+
+Options:
+  -i, --image IMAGE   Docker image to use (required)
+  -n, --name NAME     Container name (default: derived from image and cwd)
+  -h, --help          Show this help message
+
+Arguments:
+  COMMAND [ARGS...]   Command to run in the container (default: bash)
+EOF
+      exit 0
+      ;;
+    -i|--image) IMAGE="$2"; shift 2 ;;
+    -n|--name) CONTAINER="$2"; shift 2 ;;
+    --) shift; break ;;
+    *)
+      echo >&2 "ERROR: unknown argument: $1"
+      echo >&2 "Run '$(basename "$0") --help' for usage."
+      exit 1
+      ;;
+  esac
+done
+
 [ -z "${IMAGE+x}" ] && {
-  echo >&2 "ERROR: IMAGE env var is unset"
+  echo >&2 "ERROR: -i/--image is required"
+  echo >&2 "Run '$(basename "$0") --help' for usage."
   exit 1
 }
 
