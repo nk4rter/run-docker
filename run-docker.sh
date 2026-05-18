@@ -2,23 +2,33 @@
 
 set -e
 
+print_usage() {
+  echo >&2 "Usage: $0 [-i IMAGE] [-n NAME] [-o OPTION]... [-r] [-- COMMAND [ARGS...]]"
+}
+
+print_error_usage() {
+  print_usage
+  echo >&2 "Run '$0 --help' for more information"
+  exit 1
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -h|--help)
-      cat <<EOF
-Usage: $(basename "$0") -i IMAGE [-n NAME] [-o OPTION]... [-r] [-- COMMAND [ARGS...]]
+      print_usage
+      cat >&2 <<EOF
 
 Run a command in a Docker container.
 
 Options:
-  -i, --image  IMAGE      Docker image to use (required)
-  -n, --name   NAME       Container name (default: derived from image and cwd)
-  -o, --option OPTION     Extra docker options
-  -r, --restart           Recreate the container
-  -h, --help              Show this help message
+  -i, --image    IMAGE      Image to use
+  -n, --name     NAME       Container name
+  -o, --option   OPTION     Extra docker run options
+  -r, --restart             Recreate the container
+  -h, --help                Show this help message
 
 Arguments:
-  COMMAND [ARGS...]   Command to run in the container (default: bash)
+  COMMAND [ARGS...]         Command to run in the container (default: bash)
 EOF
       exit 0
       ;;
@@ -28,21 +38,18 @@ EOF
     -r|--restart) RESTART=1; shift ;;
     --) shift; break ;;
     *)
-      echo >&2 "ERROR: unknown argument: $1"
-      echo >&2 "Run '$(basename "$0") --help' for usage."
-      exit 1
+      echo >&2 'ERROR: Unknown argument: `'"$1"'`'
+      print_error_usage
       ;;
   esac
 done
 
-[ -z "${IMAGE+x}" ] && {
-  echo >&2 "ERROR: -i/--image is required"
-  echo >&2 "Run '$(basename "$0") --help' for usage."
-  exit 1
-}
-
 [ -z "${CONTAINER+x}" ] && {
-    CONTAINER="$(echo "$IMAGE" | tr -c -s '[:alnum:]' '_')$(echo "$PWD" | md5sum | cut -b-7)"
+  [ -z "${IMAGE+x}" ] && {
+    echo >&2 "ERROR: -i/--image is required when -n/--name is not specified"
+    print_error_usage
+  }
+  CONTAINER="$(echo "$IMAGE" | tr -c -s '[:alnum:]' '_')$(echo "$PWD" | md5sum | cut -b-7)"
 }
 
 [ -n "${RESTART+x}" ] && [ -n "$(docker ps -a -q -f name="$CONTAINER")" ] && {
@@ -51,6 +58,11 @@ done
 }
 
 [ -z "$(docker ps -a -q -f name="$CONTAINER")" ] && {
+  [ -z "${IMAGE+x}" ] && {
+    echo >&2 "ERROR: Container '$CONTAINER' does not exist; -i/--image is required to create it"
+    print_error_usage
+  }
+
   echo >&2 "INFO: Creating docker container '$CONTAINER'"
 
   XAUTHORITY_ARGS=()
