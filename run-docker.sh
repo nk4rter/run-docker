@@ -75,8 +75,18 @@ if [ -z "$(docker ps -a -q -f name="$CONTAINER")" ]; then
 
   CONTAINER_PASSWORD_B64=""
   if [ -n "${PASSWD+x}" ]; then
-    read -rsp "Password: " CONTAINER_PASSWORD </dev/tty
-    echo >&2
+    while true; do
+      read -rsp "Password: " CONTAINER_PASSWORD </dev/tty
+      echo >&2
+      read -rsp "Confirm password: " CONTAINER_PASSWORD_CONFIRM </dev/tty
+      echo >&2
+      if [ "$CONTAINER_PASSWORD" = "$CONTAINER_PASSWORD_CONFIRM" ]; then
+        unset CONTAINER_PASSWORD_CONFIRM
+        break
+      fi
+      echo >&2 "ERROR: Passwords do not match, please try again"
+      unset CONTAINER_PASSWORD CONTAINER_PASSWORD_CONFIRM
+    done
     CONTAINER_PASSWORD_B64=$(printf '%s' "$CONTAINER_PASSWORD" | base64 | tr -d '\n')
     unset CONTAINER_PASSWORD
   fi
