@@ -3,7 +3,7 @@
 set -e
 
 print_usage() {
-  echo >&2 "Usage: $0 [-i IMAGE] [-n NAME] [-o OPTION]... [-p] [-r] [-s] [-N] [-- COMMAND [ARGS...]]"
+  echo >&2 "Usage: $0 [-i IMAGE] [-n NAME] [-H HOME] [-o OPTION]... [-p] [-r] [-s] [-N] [-- COMMAND [ARGS...]]"
 }
 
 print_error_usage() {
@@ -23,6 +23,7 @@ Run a command in a Docker container.
 Options:
   -i, --image    IMAGE      Image to use
   -n, --name     NAME       Container name
+  -H, --home     HOME       Home dir name inside the project (default: .docker-home)
   -o, --option   OPTION     Extra docker run options
   -p, --passwd              Prompt for a password to set for the user and root
   -r, --restart             Recreate the container
@@ -37,6 +38,7 @@ EOF
       ;;
     -i|--image) IMAGE="$2"; shift 2 ;;
     -n|--name) CONTAINER="$2"; shift 2 ;;
+    -H|--home) DOCKER_HOME_DIR="$2"; shift 2 ;;
     -o|--option) EXTRA_DOCKER_OPTS+=("$2"); shift 2 ;;
     -r|--restart) RESTART=1; shift ;;
     -s|--super) SUPER=1; shift ;;
@@ -119,7 +121,7 @@ if [ -z "$(docker ps -a -q -f name="$CONTAINER")" ]; then
 
   MOUNT_HOME_ARGS=()
   if [ "$PWD" != "$HOME" ]; then
-    DOCKER_HOME="$PWD/.docker-home"
+    DOCKER_HOME="$PWD/${DOCKER_HOME_DIR:-.docker-home}"
     mkdir -p "$DOCKER_HOME"
     case "$PWD" in
       "$HOME"*)
