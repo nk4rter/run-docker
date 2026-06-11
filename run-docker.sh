@@ -3,7 +3,7 @@
 set -e
 
 print_usage() {
-  echo >&2 "Usage: $0 [-i IMAGE] [-n NAME] [-o OPTION]... [-r] [-- COMMAND [ARGS...]]"
+  echo >&2 "Usage: $0 [-i IMAGE] [-n NAME] [-o OPTION]... [-p] [-r] [-s] [-N] [-- COMMAND [ARGS...]]"
 }
 
 print_error_usage() {
@@ -12,7 +12,7 @@ print_error_usage() {
   exit 1
 }
 
-ARGS=$(getopt -o i:n:o:rh --long image:,name:,option:,restart,help -n "$0" -- "$@") || print_error_usage
+ARGS=$(getopt -o i:n:o:rspNh --long image:,name:,option:,restart,super,passwd,nopasswd,help -n "$0" -- "$@") || print_error_usage
 eval set -- "$ARGS"
 
 while true; do
@@ -27,7 +27,10 @@ Options:
   -i, --image    IMAGE      Image to use
   -n, --name     NAME       Container name
   -o, --option   OPTION     Extra docker run options
+  -p, --passwd              Prompt for a password to set for the user and root
   -r, --restart             Recreate the container
+  -s, --super               Run as root in the container
+  -N, --nopasswd            Make sudo passwordless in the container
   -h, --help                Show this help message
 
 Arguments:
@@ -39,43 +42,60 @@ EOF
     -n|--name) CONTAINER="$2"; shift 2 ;;
     -o|--option) EXTRA_DOCKER_OPTS+=("$2"); shift 2 ;;
     -r|--restart) RESTART=1; shift ;;
+    -s|--super) SUPER=1; shift ;;
+    -p|--passwd) PASSWD=1; shift ;;
+    -N|--nopasswd) NOPASSWD=1; shift ;;
     --) shift; break ;;
   esac
 done
 
-[ -z "${CONTAINER+x}" ] && {
-  [ -z "${IMAGE+x}" ] && {
+if [ -z "${CONTAINER+x}" ]; then
+  if [ -z "${IMAGE+x}" ]; then
     echo >&2 "ERROR: -i/--image is required when -n/--name is not specified"
     print_error_usage
-  }
+  fi
   CONTAINER="$(echo "$IMAGE" | tr -c -s '[:alnum:]' '_')$(echo "$PWD" | md5sum | cut -b-7)"
-}
+fi
 
-[ -n "${RESTART+x}" ] && [ -n "$(docker ps -a -q -f name="$CONTAINER")" ] && {
+if [ -n "${RESTART+x}" ] && [ -n "$(docker ps -a -q -f name="$CONTAINER")" ]; then
   echo >&2 "INFO: Removing docker container '$CONTAINER'"
   docker rm -f "$CONTAINER" >/dev/null
-}
+fi
 
-[ -z "$(docker ps -a -q -f name="$CONTAINER")" ] && {
-  [ -z "${IMAGE+x}" ] && {
+if [ -z "$(docker ps -a -q -f name="$CONTAINER")" ]; then
+  if [ -z "${IMAGE+x}" ]; then
     echo >&2 "ERROR: Container '$CONTAINER' does not exist; -i/--image is required to create it"
     print_error_usage
-  }
+  fi
+
+  CONTAINER_PASSWORD_B64=""
+  if [ -n "${PASSWD+x}" ]; then
+    read -rsp "Password: " CONTAINER_PASSWORD </dev/tty
+    echo >&2
+    CONTAINER_PASSWORD_B64=$(printf '%s' "$CONTAINER_PASSWORD" | base64 -w0)
+    unset CONTAINER_PASSWORD
+  fi
+
+  SUDO_ENABLED=""
+  if [ -n "${PASSWD+x}" ] || [ -n "${NOPASSWD+x}" ]; then SUDO_ENABLED="1"; fi
 
   echo >&2 "INFO: Creating docker container '$CONTAINER'"
 
   XAUTHORITY_ARGS=()
-  [ -n "${XAUTHORITY+x}" ] &&
+  if [ -n "${XAUTHORITY+x}" ]; then
     XAUTHORITY_ARGS=(--env XAUTHORITY --volume "$XAUTHORITY:$XAUTHORITY")
+  fi
 
   X11_SOCKET="/tmp/.X11-unix"
   X11_SOCKET_ARGS=()
-  [ -e "$X11_SOCKET" ] &&
+  if [ -e "$X11_SOCKET" ]; then
     X11_SOCKET_ARGS=(--volume "$X11_SOCKET:$X11_SOCKET")
+  fi
 
   XDG_RUNTIME_DIR_ARGS=()
-  [ -n "${XDG_RUNTIME_DIR+x}" ] &&
+  if [ -n "${XDG_RUNTIME_DIR+x}" ]; then
     XDG_RUNTIME_DIR_ARGS=(--env XDG_RUNTIME_DIR --volume "$XDG_RUNTIME_DIR:$XDG_RUNTIME_DIR")
+  fi
 
   USER_ID=$(id -u)
   GROUP_ID=$(id -g)
@@ -83,7 +103,7 @@ done
   GROUP=$(id -g -n)
 
   MOUNT_HOME_ARGS=()
-  [ "$PWD" != "$HOME" ] && {
+  if [ "$PWD" != "$HOME" ]; then
     DOCKER_HOME="$PWD/.docker-home"
     mkdir -p "$DOCKER_HOME"
     case "$PWD" in
@@ -92,7 +112,7 @@ done
         ;;
     esac
     MOUNT_HOME_ARGS=(--volume "$DOCKER_HOME:$HOME")
-  }
+  fi
 
   docker run \
     --detach \
@@ -114,55 +134,58 @@ done
   cat <<EOF | docker exec -iu0:0 "$CONTAINER" sh -s
     set -e
     CONFLICT_USER="\$(grep '^[^:]*:[^:]*:$USER_ID:' /etc/passwd | cut -d: -f1)"
-    [ -n "\$CONFLICT_USER" ] && {
+    if [ -n "\$CONFLICT_USER" ]; then
       sed -i '/^[^:]*:[^:]*:$USER_ID:/d' /etc/passwd
       sed -i "/^\$CONFLICT_USER:/d; s/\b\$CONFLICT_USER\b//g; s/,,/,/g; s/,$//; s/:,/:/" /etc/group
       sed -i "/^\$CONFLICT_USER:/d" /etc/shadow
-    }
+    fi
     echo '$USER:x:$USER_ID:$GROUP_ID::$HOME:/usr/bin/bash' >>/etc/passwd
     echo '$GROUP:x:$GROUP_ID:' >>/etc/group
     echo '$USER:*:0:0:99999:7:::' >>/etc/shadow
-    SUDO_DONE=0
-    if [ -f /etc/pam.d/su ]; then
-      { printf 'auth sufficient pam_permit.so\n'; cat /etc/pam.d/su; } > /tmp/_pam_su
-        mv /tmp/_pam_su /etc/pam.d/su
-        printf '#!/bin/sh\nexec su root -c "\$*"\n' > /usr/local/bin/sudo
-        chmod +x /usr/local/bin/sudo
-        SUDO_DONE=1
+    if [ -n '$CONTAINER_PASSWORD_B64' ]; then
+      _PASS=\$(printf '%s' '$CONTAINER_PASSWORD_B64' | base64 -d)
+      printf 'root:%s\n' "\$_PASS" | chpasswd
+      printf '$USER:%s\n' "\$_PASS" | chpasswd
+      unset _PASS
     fi
-    if [ "\$SUDO_DONE" = 0 ]; then
-      if command -v apt-get >/dev/null 2>&1; then
-        apt-get update
-        apt-get install -y --no-install-recommends sudo
-        rm -rf /var/lib/apt/lists/*
-      elif command -v pacman >/dev/null 2>&1; then
-        pacman-key --init
-        pacman --noconfirm -Syu sudo
-        rm -rf /var/cache/pacman/pkg/*
-        rm -rf /var/lib/pacman/sync/*
-      fi
-      echo '%$GROUP ALL=(ALL) NOPASSWD:ALL' >/etc/sudoers.d/user
+    if [ -n '$SUDO_ENABLED' ]; then
+      NOPASSWD_PREFIX=""
+      if [ '$NOPASSWD' = '1' ]; then NOPASSWD_PREFIX="NOPASSWD:"; fi
+      mkdir -p /etc/sudoers.d
+      echo "%$GROUP ALL=(ALL) \${NOPASSWD_PREFIX}ALL" >/etc/sudoers.d/user
       chmod 0440 /etc/sudoers.d/user
+      if [ -f /etc/pam.d/su ]; then
+        if [ '$NOPASSWD' = '1' ]; then
+          { printf 'auth sufficient pam_permit.so\n'; cat /etc/pam.d/su; } > /tmp/_pam_su
+          mv /tmp/_pam_su /etc/pam.d/su
+        fi
+        printf '#!/bin/sh\nif [ -x /usr/bin/sudo ]; then exec /usr/bin/sudo "\$@"; fi\nexec su root -c "\$*"\n' > /usr/local/bin/sudo
+        chmod +x /usr/local/bin/sudo
+      fi
     fi
 EOF
-}
+fi
 
-[ -z "$(docker ps -q -f name="$CONTAINER")" ] && {
+if [ -z "$(docker ps -q -f name="$CONTAINER")" ]; then
   echo >&2 "INFO: Starting docker container '$CONTAINER'"
   docker start "$CONTAINER" >/dev/null
-}
+fi
 
 echo >&2 "INFO: Running in docker container '$CONTAINER'"
 
 TTY_ARGS=()
-[ -t 0 ] && TTY_ARGS=(--tty)
+if [ -t 0 ]; then TTY_ARGS=(--tty); fi
 
-[ "$#" = 0 ] && set -- bash
+SUPER_ARGS=()
+if [ -n "${SUPER+x}" ]; then SUPER_ARGS=(--user 0:0); fi
+
+if [ "$#" = 0 ]; then set -- bash; fi
 
 docker exec \
   "${TTY_ARGS[@]}" \
   --interactive \
   --env DISPLAY \
   --env TERM \
+  "${SUPER_ARGS[@]}" \
   "$CONTAINER" \
   "$@"
