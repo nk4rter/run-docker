@@ -124,11 +124,11 @@ done
     echo '$USER:*:0:0:99999:7:::' >>/etc/shadow
     SUDO_DONE=0
     if [ -f /etc/pam.d/su ]; then
-      { printf 'auth sufficient pam_permit.so\n'; cat /etc/pam.d/su; } > /tmp/_pam_su \
-        && mv /tmp/_pam_su /etc/pam.d/su \
-        && printf '#!/bin/sh\nexec su root -c "\$*"\n' > /usr/local/bin/sudo \
-        && chmod +x /usr/local/bin/sudo \
-        && SUDO_DONE=1
+      { printf 'auth sufficient pam_permit.so\n'; cat /etc/pam.d/su; } > /tmp/_pam_su
+        mv /tmp/_pam_su /etc/pam.d/su
+        printf '#!/bin/sh\nexec su root -c "\$*"\n' > /usr/local/bin/sudo
+        chmod +x /usr/local/bin/sudo
+        SUDO_DONE=1
     fi
     if [ "\$SUDO_DONE" = 0 ]; then
       if command -v apt-get >/dev/null 2>&1; then
