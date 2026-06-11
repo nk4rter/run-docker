@@ -12,10 +12,7 @@ print_error_usage() {
   exit 1
 }
 
-ARGS=$(getopt -o i:n:o:rspNh --long image:,name:,option:,restart,super,passwd,nopasswd,help -n "$0" -- "$@") || print_error_usage
-eval set -- "$ARGS"
-
-while true; do
+while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help)
       print_usage
@@ -46,6 +43,8 @@ EOF
     -p|--passwd) PASSWD=1; shift ;;
     -N|--nopasswd) NOPASSWD=1; shift ;;
     --) shift; break ;;
+    -*) echo >&2 "Unknown option: $1"; print_error_usage ;;
+    *) break ;;
   esac
 done
 
@@ -54,7 +53,13 @@ if [ -z "${CONTAINER+x}" ]; then
     echo >&2 "ERROR: -i/--image is required when -n/--name is not specified"
     print_error_usage
   fi
-  CONTAINER="$(echo "$IMAGE" | tr -c -s '[:alnum:]' '_')$(echo "$PWD" | md5sum | cut -b-7)"
+  if command -v md5sum >/dev/null 2>&1; then
+    _MD5=$(echo "$PWD" | md5sum | cut -b-7)
+  else
+    _MD5=$(echo "$PWD" | md5 -q | cut -b-7)
+  fi
+  CONTAINER="$(echo "$IMAGE" | tr -c -s '[:alnum:]' '_')$_MD5"
+  unset _MD5
 fi
 
 if [ -n "${RESTART+x}" ] && [ -n "$(docker ps -a -q -f name="$CONTAINER")" ]; then
@@ -72,7 +77,7 @@ if [ -z "$(docker ps -a -q -f name="$CONTAINER")" ]; then
   if [ -n "${PASSWD+x}" ]; then
     read -rsp "Password: " CONTAINER_PASSWORD </dev/tty
     echo >&2
-    CONTAINER_PASSWORD_B64=$(printf '%s' "$CONTAINER_PASSWORD" | base64 -w0)
+    CONTAINER_PASSWORD_B64=$(printf '%s' "$CONTAINER_PASSWORD" | base64 | tr -d '\n')
     unset CONTAINER_PASSWORD
   fi
 
