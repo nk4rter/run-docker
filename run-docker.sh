@@ -21,24 +21,27 @@ while [[ $# -gt 0 ]]; do
 Run a command in a Docker container.
 
 Options:
-  -i, --image    IMAGE      Image to use
-  -n, --name     NAME       Container name
-  -H, --home     HOME       Home dir name inside the project (default: .docker-home)
-  -o, --option   OPTION     Extra docker run options
-  -p, --passwd              Prompt for a password to set for the user and root
-  -r, --restart             Recreate the container
-  -s, --super               Run as root in the container
-  -N, --nopasswd            Make sudo passwordless in the container
-  -h, --help                Show this help message
+  -n, --name     NAME                       Container name
+  -i, --image    IMAGE      (when creating) Image tag
+
+  -H, --home     HOME       (when creating) Directory to mount HOME to (default: .docker-home)
+  -o, --option   OPTION     (when creating) Extra docker run options
+
+  -p, --passwd              (when creating) Set sudo password in the container
+  -N, --nopasswd            (when creating) Make sudo passwordless in the container
+  -s, --super                               Run as root in the container
+
+  -r, --restart                             Recreate the container
+  -h, --help                                Show this help message
 
 Arguments:
-  COMMAND [ARGS...]         Command to run in the container (default: bash)
+  COMMAND [ARGS...]                         Command to run in the container (default: bash)
 EOF
       exit 0
       ;;
     -i|--image) IMAGE="$2"; shift 2 ;;
     -n|--name) CONTAINER="$2"; shift 2 ;;
-    -H|--home) DOCKER_HOME_DIR="$2"; shift 2 ;;
+    -H|--home) DOCKER_HOME="$2"; shift 2 ;;
     -o|--option) EXTRA_DOCKER_OPTS+=("$2"); shift 2 ;;
     -r|--restart) RESTART=1; shift ;;
     -s|--super) SUPER=1; shift ;;
@@ -121,7 +124,9 @@ if [ -z "$(docker ps -a -q -f name="$CONTAINER")" ]; then
 
   MOUNT_HOME_ARGS=()
   if [ "$PWD" != "$HOME" ]; then
-    DOCKER_HOME="$PWD/${DOCKER_HOME_DIR:-.docker-home}"
+    if [ -z "${DOCKER_HOME+x}" ]; then
+      DOCKER_HOME="$PWD/${DOCKER_HOME:-.docker-home}"
+    fi
     mkdir -p "$DOCKER_HOME"
     case "$PWD" in
       "$HOME"*)
