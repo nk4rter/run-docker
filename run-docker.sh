@@ -21,21 +21,21 @@ while [[ $# -gt 0 ]]; do
 Run a command in a Docker container.
 
 Options:
-  -n, --name     NAME                       Container name
-  -i, --image    IMAGE      (when creating) Image tag
+  -n, --name     NAME       Container name
+  -i, --image    IMAGE      Image tag, used when creating the container
 
-  -H, --home     HOME       (when creating) Directory to mount HOME to (default: .docker-home)
-  -o, --option   OPTION     (when creating) Extra docker run options
+  -H, --home     HOME       Directory to mount HOME to (default: .docker-home), used when creating the container
+  -o, --option   OPTION     Extra docker run options, used when creating the container
 
-  -p, --passwd              (when creating) Set sudo password in the container
-  -N, --nopasswd            (when creating) Make sudo passwordless in the container
-  -s, --super                               Run as root in the container
+  -p, --passwd              Set sudo password in the container
+  -N, --nopasswd            Make sudo passwordless in the container
+  -s, --super               Run as root in the container
 
-  -r, --restart                             Recreate the container
-  -h, --help                                Show this help message
+  -r, --restart             Recreate the container
+  -h, --help                Show this help message
 
 Arguments:
-  COMMAND [ARGS...]                         Command to run in the container (default: bash)
+  COMMAND [ARGS...]         Command to run in the container (default: bash)
 EOF
       exit 0
       ;;
@@ -72,32 +72,37 @@ if [ -n "${RESTART+x}" ] && [ -n "$(docker ps -a -q -f name="$CONTAINER")" ]; th
   docker rm -f "$CONTAINER" >/dev/null
 fi
 
+CONTAINER_PASSWORD_B64=""
+if [ -n "${PASSWD+x}" ]; then
+  while true; do
+    read -rsp "Password: " CONTAINER_PASSWORD </dev/tty
+    echo >&2
+    read -rsp "Confirm password: " CONTAINER_PASSWORD_CONFIRM </dev/tty
+    echo >&2
+    if [ "$CONTAINER_PASSWORD" = "$CONTAINER_PASSWORD_CONFIRM" ]; then
+      unset CONTAINER_PASSWORD_CONFIRM
+      break
+    fi
+    echo >&2 "ERROR: Passwords do not match, please try again"
+    unset CONTAINER_PASSWORD CONTAINER_PASSWORD_CONFIRM
+  done
+  CONTAINER_PASSWORD_B64=$(printf '%s' "$CONTAINER_PASSWORD" | base64 | tr -d '\n')
+  unset CONTAINER_PASSWORD
+fi
+
+SUDO_ENABLED=""
+if [ -n "${PASSWD+x}" ] || [ -n "${NOPASSWD+x}" ]; then SUDO_ENABLED="1"; fi
+
+USER_ID=$(id -u)
+GROUP_ID=$(id -g)
+USER=$(id -u -n)
+GROUP=$(id -g -n)
+
 if [ -z "$(docker ps -a -q -f name="$CONTAINER")" ]; then
   if [ -z "${IMAGE+x}" ]; then
     echo >&2 "ERROR: Container '$CONTAINER' does not exist; -i/--image is required to create it"
     print_error_usage
   fi
-
-  CONTAINER_PASSWORD_B64=""
-  if [ -n "${PASSWD+x}" ]; then
-    while true; do
-      read -rsp "Password: " CONTAINER_PASSWORD </dev/tty
-      echo >&2
-      read -rsp "Confirm password: " CONTAINER_PASSWORD_CONFIRM </dev/tty
-      echo >&2
-      if [ "$CONTAINER_PASSWORD" = "$CONTAINER_PASSWORD_CONFIRM" ]; then
-        unset CONTAINER_PASSWORD_CONFIRM
-        break
-      fi
-      echo >&2 "ERROR: Passwords do not match, please try again"
-      unset CONTAINER_PASSWORD CONTAINER_PASSWORD_CONFIRM
-    done
-    CONTAINER_PASSWORD_B64=$(printf '%s' "$CONTAINER_PASSWORD" | base64 | tr -d '\n')
-    unset CONTAINER_PASSWORD
-  fi
-
-  SUDO_ENABLED=""
-  if [ -n "${PASSWD+x}" ] || [ -n "${NOPASSWD+x}" ]; then SUDO_ENABLED="1"; fi
 
   echo >&2 "INFO: Creating docker container '$CONTAINER'"
 
@@ -116,11 +121,6 @@ if [ -z "$(docker ps -a -q -f name="$CONTAINER")" ]; then
   if [ -n "${XDG_RUNTIME_DIR+x}" ]; then
     XDG_RUNTIME_DIR_ARGS=(--env XDG_RUNTIME_DIR --volume "$XDG_RUNTIME_DIR:$XDG_RUNTIME_DIR")
   fi
-
-  USER_ID=$(id -u)
-  GROUP_ID=$(id -g)
-  USER=$(id -u -n)
-  GROUP=$(id -g -n)
 
   MOUNT_HOME_ARGS=()
   if [ "$PWD" != "$HOME" ]; then
@@ -164,33 +164,37 @@ if [ -z "$(docker ps -a -q -f name="$CONTAINER")" ]; then
     echo '$USER:x:$USER_ID:$GROUP_ID::$HOME:/usr/bin/bash' >>/etc/passwd
     echo '$GROUP:x:$GROUP_ID:' >>/etc/group
     echo '$USER:*:0:0:99999:7:::' >>/etc/shadow
-    if [ -n '$CONTAINER_PASSWORD_B64' ]; then
-      _PASS=\$(printf '%s' '$CONTAINER_PASSWORD_B64' | base64 -d)
-      printf 'root:%s\n' "\$_PASS" | chpasswd
-      printf '$USER:%s\n' "\$_PASS" | chpasswd
-      unset _PASS
-    fi
-    if [ -n '$SUDO_ENABLED' ]; then
-      NOPASSWD_PREFIX=""
-      if [ '$NOPASSWD' = '1' ]; then NOPASSWD_PREFIX="NOPASSWD:"; fi
-      mkdir -p /etc/sudoers.d
-      echo "%$GROUP ALL=(ALL) \${NOPASSWD_PREFIX}ALL" >/etc/sudoers.d/user
-      chmod 0440 /etc/sudoers.d/user
-      if [ -f /etc/pam.d/su ]; then
-        if [ '$NOPASSWD' = '1' ]; then
-          { printf 'auth sufficient pam_permit.so\n'; cat /etc/pam.d/su; } > /tmp/_pam_su
-          mv /tmp/_pam_su /etc/pam.d/su
-        fi
-        printf '#!/bin/sh\nif [ -x /usr/bin/sudo ]; then exec /usr/bin/sudo "\$@"; fi\nexec su root -c "\$*"\n' > /usr/local/bin/sudo
-        chmod +x /usr/local/bin/sudo
-      fi
-    fi
 EOF
 fi
 
 if [ -z "$(docker ps -q -f name="$CONTAINER")" ]; then
   echo >&2 "INFO: Starting docker container '$CONTAINER'"
   docker start "$CONTAINER" >/dev/null
+fi
+
+if [ -n "${SUDO_ENABLED}" ]; then
+  cat <<EOF | docker exec -iu0:0 "$CONTAINER" sh -s
+    set -e
+    if [ -n '$CONTAINER_PASSWORD_B64' ]; then
+      _PASS=\$(printf '%s' '$CONTAINER_PASSWORD_B64' | base64 -d)
+      printf 'root:%s\n' "\$_PASS" | chpasswd
+      printf '$USER:%s\n' "\$_PASS" | chpasswd
+      unset _PASS
+    fi
+    NOPASSWD_PREFIX=""
+    if [ '$NOPASSWD' = '1' ]; then NOPASSWD_PREFIX="NOPASSWD:"; fi
+    mkdir -p /etc/sudoers.d
+    echo "%$GROUP ALL=(ALL) \${NOPASSWD_PREFIX}ALL" >/etc/sudoers.d/user
+    chmod 0440 /etc/sudoers.d/user
+    if [ -f /etc/pam.d/su ]; then
+      if [ '$NOPASSWD' = '1' ]; then
+        { printf 'auth sufficient pam_permit.so\n'; cat /etc/pam.d/su; } > /tmp/_pam_su
+        mv /tmp/_pam_su /etc/pam.d/su
+      fi
+      printf '#!/bin/sh\nif [ -x /usr/bin/sudo ]; then exec /usr/bin/sudo "\$@"; fi\nexec su root -c "\$*"\n' > /usr/local/bin/sudo
+      chmod +x /usr/local/bin/sudo
+    fi
+EOF
 fi
 
 echo >&2 "INFO: Running in docker container '$CONTAINER'"
