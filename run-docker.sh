@@ -151,6 +151,7 @@ if [ -z "$(docker ps -a -q -f name="$CONTAINER")" ]; then
     --volume "$PWD:$PWD" \
     --name "$CONTAINER" \
     "${EXTRA_DOCKER_OPTS[@]}" \
+    --entrypoint sh \
     "$IMAGE" >/dev/null
 
   cat <<EOF | docker exec -iu0:0 "$CONTAINER" sh -s
