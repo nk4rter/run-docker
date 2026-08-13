@@ -23,6 +23,7 @@ project directory gets its own container.
 ./run-docker.sh -i ubuntu:latest -- make test    # run one command
 ./run-docker.sh -n ubuntu_latest_1a2b3c4         # reuse an existing container
 ./run-docker.sh -i ubuntu:latest -r              # recreate from scratch
+./run-docker.sh -i ubuntu:latest -R -- make test # remove the container afterwards
 ./run-docker.sh -i ubuntu:latest -o --network=host -- curl localhost:8080
 ```
 

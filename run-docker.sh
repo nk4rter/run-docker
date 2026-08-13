@@ -3,7 +3,7 @@
 set -e
 
 print_usage() {
-  echo >&2 "Usage: $0 [-i IMAGE] [-n NAME] [-H HOME] [-o OPTION]... [-p] [-r] [-s] [-N] [-- COMMAND [ARGS...]]"
+  echo >&2 "Usage: $0 [-i IMAGE] [-n NAME] [-H HOME] [-o OPTION]... [-p] [-r] [-R] [-s] [-N] [-- COMMAND [ARGS...]]"
 }
 
 print_error_usage() {
@@ -32,6 +32,7 @@ Options:
   -s, --super               Run as root in the container
 
   -r, --restart             Recreate the container
+  -R, --rm                  Remove the container after the command exits
   -h, --help                Show this help message
 
 Arguments:
@@ -44,6 +45,7 @@ EOF
     -H|--home) DOCKER_HOME="$2"; shift 2 ;;
     -o|--option) EXTRA_DOCKER_OPTS+=("$2"); shift 2 ;;
     -r|--restart) RESTART=1; shift ;;
+    -R|--rm) REMOVE=1; shift ;;
     -s|--super) SUPER=1; shift ;;
     -p|--passwd) PASSWD=1; shift ;;
     -N|--nopasswd) NOPASSWD=1; shift ;;
@@ -67,9 +69,19 @@ if [ -z "${CONTAINER+x}" ]; then
   unset _MD5
 fi
 
-if [ -n "${RESTART+x}" ] && [ -n "$(docker ps -a -q -f name="$CONTAINER")" ]; then
-  echo >&2 "INFO: Removing docker container '$CONTAINER'"
-  docker rm -f "$CONTAINER" >/dev/null
+remove_container() {
+  if [ -n "$(docker ps -a -q -f name="$CONTAINER")" ]; then
+    echo >&2 "INFO: Removing docker container '$CONTAINER'"
+    docker rm -f "$CONTAINER" >/dev/null
+  fi
+}
+
+if [ -n "${RESTART+x}" ]; then
+  remove_container
+fi
+
+if [ -n "${REMOVE+x}" ]; then
+  trap remove_container EXIT
 fi
 
 CONTAINER_PASSWORD_B64=""
