@@ -7,6 +7,13 @@ as your own user, with the current directory bind-mounted at the same path and
 `$HOME` mounted from `./.docker-home`. `$DISPLAY`, `$XAUTHORITY`, the X11 socket
 and `$XDG_RUNTIME_DIR` are passed through when present, so GUI apps work.
 
+Your user must be able to talk to the Docker daemon, i.e. be in the `docker`
+group (log out and back in afterwards):
+
+```sh
+sudo usermod -aG docker "$USER"
+```
+
 The container is created on first use and reused afterwards. Without `-n`, its
 name is derived from the image plus a hash of the current directory, so each
 project directory gets its own container.
